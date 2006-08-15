@@ -1,0 +1,97 @@
+<%INIT>
+
+my $Tickets = RT::Tickets->new($session{'CurrentUser'});
+$Tickets->FromSQL($ARGS{'Query'});
+
+$Format ||= $RT::DefaultSearchResultFormat;
+# Scrub the html of the format string to remove any potential nasties.
+$Format = $m->comp('/Elements/ScrubHTML', Content => $Format);
+my (@Format) = $m->comp('/Elements/CollectionAsTable/ParseFormat', Format => $Format);
+
+$r->content_type('application/vnd.ms-excel');
+
+my @rows=();
+my @header=();
+my @cols=();
+
+# used to store m->comp output - prevents the output from being 
+# written to the output stream. That's because we are not interested in the
+# output for these comp() calls, we are interested in the return value.
+my $mason_output;  
+
+foreach my $column (@Format) {
+    next if $column->{title} eq 'NEWLINE';
+
+    # Extract the column names from the Format array
+    foreach my $subcol ( @{ $column->{output} } ) {
+        if ( $subcol =~ /^__(.*?)__$/o ) {
+            my $col = $1;
+            push (@cols, $col);
+        }
+    }
+
+    # Determine the column titles
+    my $title = $column->{title};
+    $title =~ s/^__(.*)__$/$1/o;
+    my $ret = undef;
+    $ret = 
+        $m->comp( { store => \$mason_output },
+                        '/Elements/RT__Ticket/ColumnMap',
+                        Name => $title,
+                        Attr => 'title'
+                        )
+         ;
+    $title = $ret ? $ret : $title;
+    push @header, $title;
+}
+
+while ( my $Ticket = $Tickets->Next()) {
+    my $row;
+    foreach my $column (@cols) {
+        my $value = $m->comp({ store => \$mason_output }, 
+                             '/Elements/RT__Ticket/ColumnMap', 
+                             Name => $column, Attr => 'value');
+        if ( $value && ref($value)) {
+            my @x = &{ $value }( $Ticket, 0 );
+            my $i=0;
+            $row->{ $column } = "";
+            foreach my $x (@x) {
+                $row->{ $column } .= ", " if $i > 0; # separating multivalues
+                if (ref ($x)) {
+                    $row->{ $column } .= $$x;
+                } else {                        
+                    $row->{ $column } .= $x;
+                }
+                $i++;
+            }
+        } else {
+            $row->{ $column } =  $value ;
+        }
+        $row->{ $column } =~ s/, <br>//g;    # ColumnMap adds <br> tags, which we don't want
+    }
+    push @rows, $row;
+}
+
+$m->out(join("\t", @header));
+$m->out("\n");
+
+foreach my $row (@rows) {
+        my @row;
+        foreach my $col(@cols) {
+                push @row, $row->{"$col"};
+        }
+        $m->out(join("\t",@row));
+        $m->out("\n");
+}
+
+$m->abort();
+</%INIT>
+<%ARGS>
+$Query => undef
+$Format => undef 
+$HideResults => 0
+$Rows => 50
+$Page => 1
+$OrderBy => 'id'
+$Order => 'ASC'
+</%ARGS>
