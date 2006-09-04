@@ -1,6 +1,6 @@
 package RT::View::ConciseSpreadsheet;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 use warnings;
 use strict;
